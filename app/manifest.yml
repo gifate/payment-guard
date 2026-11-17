@@ -1,0 +1,166 @@
+modules:
+  jira:issuePanel:
+    - key: payment-guard-panel
+      resource: panel
+      resolver:
+        function: resolver
+      render: native
+      title: Payment Guard
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+  jira:issueContext:
+    - key: payment-guard-context
+      resource: context
+      resolver:
+        function: resolver
+      render: native
+      title: Payment Guard
+      label: Payment status
+      dynamicProperties:
+        function: context-status-fn
+  jira:globalPage:
+    - key: payment-guard-page
+      resource: page
+      resolver:
+        function: resolver
+      render: native
+      title: Payment Guard
+  rovo:mcp:
+    - key: payment-guard-mcp
+      name: Payment Guard
+      tools:
+        - check-invoice
+        - list-holds
+        - explain-hold
+  rovo:agent:
+    - key: ap-guard
+      name: AP Guard
+      description: Checks invoices for duplicate payments and vendor bank-account change fraud before anyone pays them, using Payment Guard.
+      prompt: |
+        You are AP Guard, an assistant for an accounts-payable team that receives invoices
+        and payment requests in Jira Service Management. You help people avoid paying an
+        invoice twice and avoid paying to a bank account changed by a fraudster.
+
+        Tools:
+        - check-invoice: ask whether an invoice WOULD be held, before it is recorded.
+          Collect vendor, invoice number, amount, currency, invoice date (YYYY-MM-DD)
+          and the bank account to pay. Ask for anything missing.
+        - list-holds: list the work items currently on hold and bank-account changes
+          waiting for call-back verification.
+        - explain-hold: explain why one work item (e.g. AP-12) is on hold.
+
+        Rules for your answers:
+        - Never tell anyone a held payment is safe to pay. You cannot release holds;
+          only a person can, in the Payment Guard panel, with a written reason.
+        - For a bank-account change, always remind the user to call the vendor on a
+          phone number already on file, never one given in the change request.
+        - Quote the rule codes (D1 duplicate number, D2 same amount within 30 days,
+          B1 bank account not verified or different, B2 recent or unverified bank change,
+          E missing data) and link the related work items by key.
+        - Keep answers short and practical. Never show full bank account numbers.
+      conversationStarters:
+        - What is on hold right now?
+        - Why is this work item on hold?
+        - Would this invoice be held? Acme Supplies, INV-0042, 1200 USD
+      actions:
+        - check-invoice
+        - list-holds
+        - explain-hold
+  action:
+    - key: check-invoice
+      name: Check an invoice
+      function: check-invoice-fn
+      actionVerb: GET
+      description: >
+        Checks whether an invoice would be held by Payment Guard (possible duplicate,
+        unverified or changed vendor bank account, missing data) without saving anything.
+      inputs:
+        vendor:
+          title: Vendor
+          type: string
+          required: true
+          description: Vendor (supplier) name as written on the invoice.
+        invoiceNo:
+          title: Invoice number
+          type: string
+          required: true
+          description: Invoice number as written on the invoice.
+        amount:
+          title: Amount
+          type: string
+          required: true
+          description: Invoice total, for example 1200.00.
+        currency:
+          title: Currency
+          type: string
+          required: false
+          description: ISO currency code, for example USD.
+        invoiceDate:
+          title: Invoice date
+          type: string
+          required: true
+          description: Invoice date in YYYY-MM-DD format.
+        bankAccount:
+          title: Bank account
+          type: string
+          required: true
+          description: The bank account or IBAN the invoice asks to be paid to.
+    - key: list-holds
+      name: List payment holds
+      function: list-holds-fn
+      actionVerb: GET
+      description: >
+        Lists the work items whose payment Payment Guard is currently holding, and vendor
+        bank-account changes waiting for call-back verification.
+      inputs:
+        scope:
+          title: Scope
+          type: string
+          required: false
+          description: Optional. Leave empty to list everything you can see.
+    - key: explain-hold
+      name: Explain a payment hold
+      function: explain-hold-fn
+      actionVerb: GET
+      description: Explains why Payment Guard is holding the payment of one work item, by its key.
+      inputs:
+        issueKey:
+          title: Work item key
+          type: string
+          required: true
+          description: The key of the work item, for example AP-12.
+  trigger:
+    - key: on-issue-created
+      function: on-issue-created-fn
+      events:
+        - avi:jira:created:issue
+  function:
+    - key: context-status-fn
+      handler: index.contextStatus
+    - key: on-issue-created-fn
+      handler: index.onIssueCreated
+    - key: resolver
+      handler: index.handler
+    - key: check-invoice-fn
+      handler: index.checkInvoice
+    - key: list-holds-fn
+      handler: index.listHolds
+    - key: explain-hold-fn
+      handler: index.explainHold
+resources:
+  - key: panel
+    path: src/frontend/index.jsx
+  - key: page
+    path: src/frontend/holds.jsx
+  - key: context
+    path: src/frontend/context.jsx
+permissions:
+  scopes:
+    - read:jira-work
+    - write:jira-work
+    - storage:app
+app:
+  runtime:
+    name: nodejs24.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/98ed7940-cbd9-4a52-899a-8b502049f54d
